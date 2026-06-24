@@ -1,11 +1,15 @@
 from fastapi import APIRouter, Depends, status, HTTPException
 from schemas.userschema import CreateUser, LoginUser
 from auth.services import AuthServices
-from auth.utils import get_jwt_access_token, verify_password
+from auth.utils import get_jwt_token, verify_password, decode_jwt_token
 from sqlalchemy.ext.asyncio import AsyncSession
 from db.db_config import get_session
 from datetime import timedelta
 from fastapi.responses import JSONResponse
+from auth.dependencies import RefreshTokenBearer
+from auth.dependencies import AccessTokenBearer
+from db.redis import add_revoked_token
+import uuid
 
 auth_route = APIRouter()
 auth_service = AuthServices()
@@ -24,14 +28,19 @@ async def user_login(user: LoginUser, session: AsyncSession = Depends(get_sessio
     if user_details is not None:
         uid = str(user_details.id)
         if await verify_password(user_password, user_details.password):
-            access_token = await get_jwt_access_token(
-                user={"email": user_email, "uid": uid}
-            )
-            refresh_token = await get_jwt_access_token(
+
+            sid: str = str(uuid.uuid4())
+
+            refresh_token = await get_jwt_token(
                 user={"email": user_email, "uid": uid},
-                refresh=True,
-                expiry_time=timedelta(seconds=720),
+                sid=sid
             )
+
+            access_token = await get_jwt_token(
+                user={"email": user_email, "uid": uid},
+                sid=sid
+            )
+
 
             return JSONResponse(
                 content={
@@ -49,3 +58,22 @@ async def user_login(user: LoginUser, session: AsyncSession = Depends(get_sessio
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="wrong email"
         )
+
+
+@auth_route.post("/getaccesstoken")
+async def get_access_token(token_details: dict = Depends(RefreshTokenBearer())):
+    print(token_details.get("user"))
+    print(token_details.get("jti"))
+    return JSONResponse(
+        content={"token": await get_jwt_token(user=token_details.get("user"), sid=token_details.get("sid"))}
+    )
+
+
+@auth_route.post("/logout")
+# 1. add AccessToken to redis
+# 2. add refresh token to postgres
+async def logout(token_data: dict = Depends(AccessTokenBearer())):
+    await add_revoked_token(token_data.get("sid"))
+    return JSONResponse(
+        content={"message": "Logged out successfully"}, status_code=status.HTTP_200_OK
+    )

@@ -1,7 +1,9 @@
 from fastapi.security import HTTPBearer
 from fastapi import Request, HTTPException, status
 from .utils import decode_jwt_token
-from datetime import datetime
+from datetime import datetime, timezone
+from db.redis import add_revoked_token, is_sid_in_bucket
+import typing
 
 
 class TokenBearer(HTTPBearer):
@@ -11,9 +13,15 @@ class TokenBearer(HTTPBearer):
     async def __call__(self, request: Request):
         creds = await super().__call__(request)
         cred_token = creds.credentials
-        cred_data = await decode_jwt_token(cred_token)
+        cred_data: dict[str, any] = await decode_jwt_token(cred_token)
 
         if cred_data is not None:
+            if await is_sid_in_bucket(cred_data.get("sid")):
+                print(f"the jti in the dependencies is {cred_data.get('jti')}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="all tokens are revoked",
+                )
             return await self.verify_token_data(cred_data)
 
         raise HTTPException(
@@ -35,11 +43,14 @@ class AccessTokenBearer(TokenBearer):
             )
 
         # 2. check expiry time
-        elif datetime.fromisoformat(token_data.get("exp_time")) < datetime.now():
+        elif datetime.fromisoformat(token_data.get("exp_time")) < datetime.now(
+            timezone.utc
+        ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="access token expired, generate a new access token",
             )
+        print(token_data)
         return token_data
 
 
@@ -53,7 +64,9 @@ class RefreshTokenBearer(TokenBearer):
             )
 
         # 2. check expiry time
-        elif datetime.fromisoformat(token_data.get("exp_time")) < datetime.now():
+        elif datetime.fromisoformat(token_data.get("exp_time")) < datetime.now(
+            timezone.utc
+        ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail="refresh token is expired"
             )

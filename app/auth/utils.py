@@ -1,7 +1,7 @@
 from passlib.context import CryptContext
 from appconfig import appConfig
 import jwt
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, timezone
 import uuid
 import logging
 import bcrypt
@@ -30,22 +30,25 @@ async def verify_password(password: str, hashed_password: str) -> bool:
 
 JWT_ALGORITHM = appConfig.JWT_ALGORITHM
 JWT_SECRET = appConfig.JWT_SECRET
-JWT_EXPIRY_TIME = timedelta(seconds=360)
+JWT_ACCESS_EXPIRY_TIME = timedelta(seconds=300)
+JWT_REFRESH_EXPIRY_TIME = timedelta(seconds=600)
 
 
-async def get_jwt_access_token(
-    user: dict, expiry_time: timedelta = JWT_EXPIRY_TIME, refresh: bool = False
+async def get_jwt_token(
+    user: dict, sid: str, expiry_time: timedelta = JWT_ACCESS_EXPIRY_TIME, refresh: bool = False
 ):
     payload = {}
     payload["user"] = user
-    payload["exp_time"] = str(datetime.now() + expiry_time)
+    payload["exp_time"] = str(datetime.now(timezone.utc) + expiry_time)
     payload["refresh"] = refresh
     payload["jti"] = str(uuid.uuid4())
+    payload["sid"] = sid
     encdoded_jwt = jwt.encode(
         payload=payload,
         key=JWT_SECRET,
-        algorithm=JWT_ALGORITHM,
+        algorithm=JWT_ALGORITHM
     )
+    print(f"jti is {payload['jti']}")
     return encdoded_jwt
 
 

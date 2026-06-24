@@ -17,7 +17,7 @@ refreshTokenBearer = RefreshTokenBearer()
 @bookrouter.get("/books", status_code=200)
 async def get_books(
     session: AsyncSession = Depends(get_session),
-    userDetails=Depends(refreshTokenBearer),
+    userDetails=Depends(accessTokenBearer),
 ):
     return await services.get_all_books(session)
 
